@@ -328,7 +328,7 @@ namespace FileManager
         {
             SavedCommands.Add(command);
 
-            string[] commandParams = command.ToLower().Split(' ');
+            string[] commandParams = SplitCommand(command);
 
             if (commandParams.Length > 0)
             {
@@ -428,10 +428,46 @@ namespace FileManager
                 catch (Exception ex)
                 {
                     ShowMessage(ex.Message, MessageType.Error);
-                }                
+                }
             }
 
             UpdateConsole(TreeHeight + InfoHeight);
+        }
+
+        /// <summary>
+        /// Разделяет введённую пользователем строку на отдельные команды.
+        /// </summary>
+        /// <param name="command"></param>
+        /// <returns></returns>
+        private static string[] SplitCommand(string command)
+        {
+            List<string> commandParams = new List<string>();
+
+            if (command.Contains("\""))
+            {
+                commandParams.AddRange(command.ToLower().Split('"'));
+
+                for (int i = 0; i < commandParams.Count; i++)
+                {
+                    commandParams[i] = commandParams[i].TrimEnd(' ').TrimStart(' ');
+                }
+
+                commandParams = commandParams.Where(x => x != "").ToList();
+
+                if (commandParams[0] == "ls" && commandParams.Count > 2)
+                {
+                    commandParams.AddRange(commandParams[2].ToLower().Split(' '));
+                    commandParams.RemoveAt(2);
+                }
+            }
+            else
+            {
+                commandParams.AddRange(command.ToLower().Split(' '));
+            }
+
+            
+
+            return commandParams.ToArray();
         }
 
         /// <summary>
