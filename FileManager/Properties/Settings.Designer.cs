@@ -26,18 +26,18 @@ namespace FileManager.Properties {
         [global::System.Configuration.ApplicationScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("160")]
-        public int WINDOW_WIDTH {
+        public int WindowWidth {
             get {
-                return ((int)(this["WINDOW_WIDTH"]));
+                return ((int)(this["WindowWidth"]));
             }
         }
         
         [global::System.Configuration.ApplicationScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("40")]
-        public int WINDOW_HEIGHT {
+        public int WindowHeight {
             get {
-                return ((int)(this["WINDOW_HEIGHT"]));
+                return ((int)(this["WindowHeight"]));
             }
         }
         
@@ -74,6 +74,15 @@ namespace FileManager.Properties {
             }
             set {
                 this["CurrentDir"] = value;
+            }
+        }
+        
+        [global::System.Configuration.ApplicationScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("0")]
+        public int ElementsPerPage {
+            get {
+                return ((int)(this["ElementsPerPage"]));
             }
         }
     }

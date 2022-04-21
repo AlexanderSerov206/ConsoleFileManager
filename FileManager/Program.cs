@@ -14,8 +14,13 @@ namespace FileManager
         static int WindowWidth { get; set; }
         static int TreeHeight { get; set; } = 0;
         static int InfoHeight { get; set; } = 0;
-        private static string currentDir;
-        private const int MF_BYCOMMAND = 0x00000000;
+        static string CurrentDir { get; set; }
+        static StringBuilder CurrentTree { get; set; } = new StringBuilder();
+        static int CurrentPage { get; set; } = 1;
+        static int ElementsPerPage { get; set; } = 0;
+
+        // Поля и методы для блокировки размера консоли. Взял со StackOverFlow.
+        const int MF_BYCOMMAND = 0x00000000;
         public const int SC_MINIMIZE = 0xF020;
         public const int SC_MAXIMIZE = 0xF030;
         public const int SC_SIZE = 0xF000;
@@ -30,6 +35,23 @@ namespace FileManager
 
         [DllImport("kernel32.dll", ExactSpelling = true)]
         private static extern IntPtr GetConsoleWindow();
+
+        /// <summary>
+        /// Блокирует изменение размера консоли.
+        /// </summary>
+        static void LockConsoleResizing()
+        {
+            IntPtr handle = GetConsoleWindow();
+            IntPtr sysMenu = GetSystemMenu(handle, false);
+
+            if (handle != IntPtr.Zero)
+            {
+                DeleteMenu(sysMenu, SC_MINIMIZE, MF_BYCOMMAND);
+                DeleteMenu(sysMenu, SC_MAXIMIZE, MF_BYCOMMAND);
+                DeleteMenu(sysMenu, SC_SIZE, MF_BYCOMMAND);
+            }
+        }
+        // Завершены манипуляции с консолью.
 
         static void Main(string[] args)
         {
@@ -60,47 +82,44 @@ namespace FileManager
         /// </summary>
         private static void SetWindowParameters()
         {
-            if (Properties.Settings.Default.WINDOW_HEIGHT >= 30 && Properties.Settings.Default.WINDOW_HEIGHT <= 70)
-                WindowHeight = Properties.Settings.Default.WINDOW_HEIGHT;
+            if (Properties.Settings.Default.WindowHeight >= 30 && Properties.Settings.Default.WindowHeight <= 70)
+                WindowHeight = Properties.Settings.Default.WindowHeight;
             else
                 WindowHeight = 60;
 
-            if (Properties.Settings.Default.WINDOW_WIDTH >= 60 && Properties.Settings.Default.WINDOW_WIDTH <= 160)
-                WindowWidth = Properties.Settings.Default.WINDOW_WIDTH;
+            if (Properties.Settings.Default.WindowWidth >= 60 && Properties.Settings.Default.WindowWidth <= 160)
+                WindowWidth = Properties.Settings.Default.WindowWidth;
             else
                 WindowWidth = 150;
         }
 
+        /// <summary>
+        /// Загружает сохранённую информацию об открытой директории, количестве элементов для отображения в консоли и открытом дереве каталогов.
+        /// </summary>
         static void LoadSettings()
         {
             if (Properties.Settings.Default.CurrentDir != "")
-                currentDir = Properties.Settings.Default.CurrentDir;
+                CurrentDir = Properties.Settings.Default.CurrentDir;
             else
-                currentDir = Directory.GetCurrentDirectory();
+                CurrentDir = Directory.GetCurrentDirectory();
+
+            if (Properties.Settings.Default.ElementsPerPage != 0)
+                ElementsPerPage = Properties.Settings.Default.ElementsPerPage;
 
             if (Properties.Settings.Default.OpenedTree != "")
-                DrawTree(new DirectoryInfo(Properties.Settings.Default.OpenedTree), Convert.ToInt32(Properties.Settings.Default.OpenedPage));
+                DrawTree(new DirectoryInfo(Properties.Settings.Default.OpenedTree), Convert.ToInt32(Properties.Settings.Default.OpenedPage), true);
         }
 
         /// <summary>
-        /// Блокирует изменение размера консоли.
+        /// Метод для расчёта размера окон "дерева" и "информации" в зависимости от указанных параметров в файле Config.
         /// </summary>
-        static void LockConsoleResizing()
-        {
-            IntPtr handle = GetConsoleWindow();
-            IntPtr sysMenu = GetSystemMenu(handle, false);
-
-            if (handle != IntPtr.Zero)
-            {
-                DeleteMenu(sysMenu, SC_MINIMIZE, MF_BYCOMMAND);
-                DeleteMenu(sysMenu, SC_MAXIMIZE, MF_BYCOMMAND);
-                DeleteMenu(sysMenu, SC_SIZE, MF_BYCOMMAND);
-            }
-        }
+        /// <param name="sourceHeight"></param>
+        /// <param name="part"></param>
+        /// <returns></returns>
         static int GetPartialHeight(int sourceHeight, double part)
         {
-            int treeHeight = 0;
-            return treeHeight = Convert.ToInt32(Math.Round(sourceHeight * part));
+            int treeHeight = Convert.ToInt32(Math.Round(sourceHeight * part));
+            return treeHeight;
         }
 
         /// <summary>
@@ -108,12 +127,12 @@ namespace FileManager
         /// </summary>
         static void UpdateConsole(int startingPosition)
         {
-            DrawConsole(currentDir, 0, startingPosition, WindowWidth, 3);
+            DrawConsole(CurrentDir, 0, startingPosition, WindowWidth, 3);
             ProcessEnterCommand(WindowWidth);
         }
 
         /// <summary>
-        /// Показывает информационное сообщение. Если тип сообщения "ошибка", то записывает ошибку в файл errors.txt в корневой папке приложения.
+        /// Показывает сообщение в окне информации. Если тип сообщения "ошибка", то записывает ошибку в файл errors.txt в корневой папке приложения.
         /// </summary>
         /// <param name="message"></param>
         /// <param name="messageType"></param>
@@ -131,18 +150,27 @@ namespace FileManager
                     DrawWindow(0, TreeHeight, WindowWidth, InfoHeight);
                     Console.SetCursorPosition(2, TreeHeight + 1);
                     Console.WriteLine($"Ошибка. {message}");
-                    string currentDateTime = DateTime.Now.ToShortDateString() + " " + DateTime.Now.ToLongTimeString();
-                    string path = Environment.CurrentDirectory;
-
-                    if (!Directory.Exists($"{path}\\errors\\"))
-                        Directory.CreateDirectory($"{path}\\errors\\");
-
-                    File.AppendAllText($"{path}\\errors\\errors.txt", $"{currentDateTime} Ошибка. {message} \n");
+                    LogError(message);
                     break;
 
                 default:
                     break;
             }
+        }
+
+        /// <summary>
+        /// Записывает сообщение об ошибке в файл \errors\errors.txt
+        /// </summary>
+        /// <param name="message"></param>
+        static void LogError(string message)
+        {
+            string currentDateTime = DateTime.Now.ToShortDateString() + " " + DateTime.Now.ToLongTimeString();
+            string path = Environment.CurrentDirectory;
+
+            if (!Directory.Exists($"{path}\\errors\\"))
+                Directory.CreateDirectory($"{path}\\errors\\");
+
+            File.AppendAllText($"{path}\\errors\\errors.txt", $"{currentDateTime} Ошибка. {message} \n");
         }
 
         /// <summary>
@@ -153,24 +181,50 @@ namespace FileManager
         {
             return (Console.CursorLeft, Console.CursorTop);
         }
-        
+
+        /// <summary>
+        /// Возвращает и выводит в консоль команду, которая была ранее использована и записана в коллекцию.
+        /// </summary>
+        /// <param name="left"></param>
+        /// <param name="top"></param>
+        /// <param name="command"></param>
+        /// <returns></returns>
+        static StringBuilder GetCommand(int left, int top, StringBuilder command)
+        {
+            DrawConsole(CurrentDir, 0, TreeHeight + InfoHeight, WindowWidth, 3);
+            command.Clear();
+
+            if (SavedCommands.Count > 0)
+            {
+                command = command.Append(SavedCommands[CommandIndex]);
+            }
+
+            Console.SetCursorPosition(left, top);
+            Console.Write(command);
+            return command;
+        }
+
+        /// <summary>
+        /// Обрабатывает нажатые клавиши в консоли, записывает команды и обрататывает нажатия специальных клавиш.
+        /// </summary>
+        /// <param name="width"></param>
         static void ProcessEnterCommand(int width)
         {
             (int left, int top) = GetCursorPosition();
             StringBuilder command = new StringBuilder();
-            ConsoleKey key;
+            ConsoleKeyInfo key;
 
             do
             {
-                key = Console.ReadKey().Key;
+                key = Console.ReadKey();
 
-                if (key != ConsoleKey.Enter && key != ConsoleKey.Backspace && key != ConsoleKey.UpArrow && key != ConsoleKey.DownArrow && key != ConsoleKey.LeftArrow && key != ConsoleKey.RightArrow)
+                if (key.Key != ConsoleKey.Enter && key.Key != ConsoleKey.Backspace && key.Key != ConsoleKey.UpArrow && key.Key != ConsoleKey.DownArrow && key.Key != ConsoleKey.LeftArrow && key.Key != ConsoleKey.RightArrow)
                 {
-                    command.Append((char)key);
+                    command.Append(key.KeyChar);
                     CommandIndex = -1;
                 }
 
-                (int currentLeft, int currentTop) = GetCursorPosition();
+                (int currentLeft, _) = GetCursorPosition();
 
                 if (currentLeft == width - 2)
                 {
@@ -179,7 +233,7 @@ namespace FileManager
                     Console.SetCursorPosition(currentLeft - 1, top);
                 }
 
-                if (key == ConsoleKey.Backspace)
+                if (key.Key == ConsoleKey.Backspace)
                 {
                     if (command.Length > 0)
                     {
@@ -196,10 +250,9 @@ namespace FileManager
                         Console.SetCursorPosition(left, top);
                     }
                     CommandIndex = -1;
-                }                                
+                }                                                
                 
-                
-                if (key == ConsoleKey.DownArrow)
+                if (key.Key == ConsoleKey.DownArrow)
                 {
                     Console.SetCursorPosition(currentLeft - 1, top);
 
@@ -212,29 +265,17 @@ namespace FileManager
 
                     if (SavedCommands.Count > 0 && CommandIndex < SavedCommands.Count)
                     {
-                        DrawConsole(currentDir, 0, TreeHeight + InfoHeight, WindowWidth, 3);
-                        command.Clear();
-
-                        command = command.Append(SavedCommands[CommandIndex]);
-
-                        Console.SetCursorPosition(left, top);
-                        Console.Write(command);
+                        command = GetCommand(left, top, command);
                     }
                     else
                     {
                         CommandIndex = 0;
 
-                        DrawConsole(currentDir, 0, TreeHeight + InfoHeight, WindowWidth, 3);
-                        command.Clear();
-
-                        command = command.Append(SavedCommands[CommandIndex]);
-
-                        Console.SetCursorPosition(left, top);
-                        Console.Write(command);                        
+                        command = GetCommand(left, top, command);
                     }
                 }
 
-                if (key == ConsoleKey.UpArrow)
+                if (key.Key == ConsoleKey.UpArrow)
                 {
                     Console.SetCursorPosition(currentLeft - 1, top);
 
@@ -247,42 +288,42 @@ namespace FileManager
 
                     if (SavedCommands.Count > 0 && CommandIndex < SavedCommands.Count && CommandIndex >= 0)
                     {
-                        DrawConsole(currentDir, 0, TreeHeight + InfoHeight, WindowWidth, 3);
-                        command.Clear();
-
-                        command = command.Append(SavedCommands[CommandIndex]);
-
-                        Console.SetCursorPosition(left, top);
-                        Console.Write(command);
+                        command = GetCommand(left, top, command);
                     }
                     else
                     {
                         CommandIndex = SavedCommands.Count - 1;
 
-                        DrawConsole(currentDir, 0, TreeHeight + InfoHeight, WindowWidth, 3);
-                        command.Clear();
-
-                        command = command.Append(SavedCommands[CommandIndex]);
-
-                        Console.SetCursorPosition(left, top);
-                        Console.Write(command);
+                        command = GetCommand(left, top, command);
                     }
                 }
 
-                if (key == ConsoleKey.LeftArrow)
+                if (key.Key == ConsoleKey.LeftArrow)
                 {
+                    CurrentPage--;
+                    if (CurrentPage < 1)
+                        CurrentPage = 1;
+                    else
+                        DrawTree(new DirectoryInfo(CurrentDir), CurrentPage, false);
                     Console.SetCursorPosition(currentLeft - 1, top);
                 }
 
-                if (key == ConsoleKey.RightArrow)
+                if (key.Key == ConsoleKey.RightArrow)
                 {
+                    CurrentPage++;
+                    DrawTree(new DirectoryInfo(CurrentDir), CurrentPage, false);
                     Console.SetCursorPosition(currentLeft - 1, top);
                 }
             }
-            while (key != ConsoleKey.Enter);
+            while (key.Key != ConsoleKey.Enter);
 
             ParseCommandString(command.ToString());
         }
+
+        /// <summary>
+        /// Обрабатывает команды, введённые в консоль.
+        /// </summary>
+        /// <param name="command"></param>
         static void ParseCommandString(string command)
         {
             SavedCommands.Add(command);
@@ -295,28 +336,28 @@ namespace FileManager
                 {
                     switch (commandParams[0])
                     {
-                        case "cd":
+                        case "cd": //команда "изменить директорию"
                             if (commandParams.Length > 1 && Directory.Exists(commandParams[1]))
                             {
-                                currentDir = commandParams[1];
+                                CurrentDir = commandParams[1];
                                 Properties.Settings.Default.CurrentDir = commandParams[1];
                                 Properties.Settings.Default.Save();
                             }
                             break;
 
-                        case "ls":
+                        case "ls": //команда "показать дерево каталогов"
                             if (commandParams.Length > 1 && Directory.Exists(commandParams[1]))
                             {
                                 if (commandParams.Length > 3 && commandParams[2] == "-p" && int.TryParse(commandParams[3], out int page))
                                 {
-                                    DrawTree(new DirectoryInfo(commandParams[1]), page);
+                                    DrawTree(new DirectoryInfo(commandParams[1]), page, true);
                                     Properties.Settings.Default.OpenedPage = page;
                                     Properties.Settings.Default.OpenedTree = commandParams[1];
                                     Properties.Settings.Default.Save();
                                 }
                                 else
                                 {
-                                    DrawTree(new DirectoryInfo(commandParams[1]), 1);
+                                    DrawTree(new DirectoryInfo(commandParams[1]), 1, true);
                                     Properties.Settings.Default.OpenedPage = 1;
                                     Properties.Settings.Default.OpenedTree = commandParams[1];
                                     Properties.Settings.Default.Save();
@@ -324,14 +365,14 @@ namespace FileManager
                             }
                             else
                             {
-                                DrawTree(new DirectoryInfo(currentDir), 1);
+                                DrawTree(new DirectoryInfo(CurrentDir), 1, true);
                                 Properties.Settings.Default.OpenedPage = 1;
-                                Properties.Settings.Default.OpenedTree = currentDir;
+                                Properties.Settings.Default.OpenedTree = CurrentDir;
                                 Properties.Settings.Default.Save();
                             }
                             break;
 
-                        case "cp":
+                        case "cp": //команда "скопировать" файл или каталог
                             if (commandParams.Length > 1 && File.Exists(commandParams[1]))
                             {
                                 CopyFile(commandParams, out string message);
@@ -347,7 +388,7 @@ namespace FileManager
                             }
                             break;
 
-                        case "rm":
+                        case "rm": //команда "удалить" файл или каталог
                             if (commandParams.Length > 1 && File.Exists(commandParams[1]))
                             {
                                 File.Delete(commandParams[1]);
@@ -364,7 +405,7 @@ namespace FileManager
                             }
                             break;
 
-                        case "info":
+                        case "info": //команда "информация" о файле или каталоге
                             if (commandParams.Length > 1 && File.Exists(commandParams[1]))
                             {
                                 ShowInfo(commandParams[1], InfoType.File);
@@ -375,7 +416,7 @@ namespace FileManager
                             }
                             else
                             {
-                                ShowInfo(currentDir, InfoType.Directory);
+                                ShowInfo(CurrentDir, InfoType.Directory);
                             }
                             break;
 
@@ -394,7 +435,7 @@ namespace FileManager
         }
 
         /// <summary>
-        /// Выводит информацию о каталоке или файле.
+        /// Выводит информацию о каталоге или файле.
         /// </summary>
         /// <param name="path"></param>
         /// <param name="infoType"></param>
@@ -440,7 +481,7 @@ namespace FileManager
         /// Печатает в информацию аттрибуты, переданные в массиве строк в зависимости от размеров окна "Информации".
         /// </summary>
         /// <param name="attributes"></param>
-        private static void ShowAttributes(string[] attributes)
+        static void ShowAttributes(string[] attributes)
         {
             DrawWindow(0, TreeHeight, WindowWidth, InfoHeight);
             int infoLines = InfoHeight - 2;
@@ -451,7 +492,7 @@ namespace FileManager
             {
                 Console.SetCursorPosition(2, TreeHeight + i);
 
-                for (attributeIndex = attributeIndex; attributeIndex < attributesPerLine * i; attributeIndex++)
+                for ( ; attributeIndex < attributesPerLine * i; attributeIndex++)
                 {
                     if (attributeIndex < attributes.Length)
                     {
@@ -559,21 +600,39 @@ namespace FileManager
         /// </summary>
         /// <param name="dir">Директория</param>
         /// <param name="page">Страница</param>
-        static void DrawTree(DirectoryInfo dir, int page)
+        static void DrawTree(DirectoryInfo dir, int page, bool isNew)
         {
-            StringBuilder tree = new StringBuilder();
-            GetTree(tree, dir, "", true);
+            CurrentPage = page;
+
+            if (isNew)
+            {
+                CurrentTree.Clear();
+                GetTree(CurrentTree, dir, "", true);
+            }
 
             DrawWindow(0, 0, WindowWidth, TreeHeight);
 
             (int currentLeft, int currentTop) = GetCursorPosition();
 
-            int pageLines = TreeHeight - 2;
-            string[] lines = tree.ToString().Split(new char[] { '\n' });
+            int pageLines;
+
+            if (ElementsPerPage > 0 && ElementsPerPage <= TreeHeight - 2)
+            {
+                pageLines = ElementsPerPage;
+            }
+            else
+            {
+                pageLines = TreeHeight - 2;
+            }
+
+            string[] lines = CurrentTree.ToString().Split(new char[] { '\n' });
             int pageTotal = (lines.Length + pageLines - 1) / pageLines;
 
             if (page > pageTotal)
+            {
                 page = pageTotal;
+                CurrentPage = pageTotal;
+            }
 
             for (int i = (page - 1) * pageLines, counter = 0; i < page * pageLines; i++, counter++)
             {
@@ -588,52 +647,52 @@ namespace FileManager
 
             string footer = $"╡ {page} of {pageTotal} ╞";
             Console.SetCursorPosition(WindowWidth / 2 - footer.Length / 2, TreeHeight - 1);
-            Console.WriteLine(footer);
+            Console.WriteLine(footer);            
         }
 
+        /// <summary>
+        /// Получает древо каталогов и файлов из директории.
+        /// </summary>
+        /// <param name="tree"></param>
+        /// <param name="dir"></param>
+        /// <param name="indent"></param>
+        /// <param name="lastDirectory"></param>
         static void GetTree(StringBuilder tree, DirectoryInfo dir, string indent, bool lastDirectory)
         {
-            try
-            {
-                tree.Append(indent);
+            tree.Append(indent);
 
-                if (lastDirectory)
+            if (lastDirectory)
+            {
+                tree.Append("└─");
+                indent += "  ";
+            }
+            else
+            {
+                tree.Append("├─");
+                indent += "│ ";
+            }
+
+            tree.Append($"{dir.Name}\n");
+
+            FileInfo[] subFiles = dir.GetFiles("*", SearchOption.TopDirectoryOnly);
+
+            for (int i = 0; i < subFiles.Length; i++)
+            {
+                if (i == subFiles.Length - 1)
                 {
-                    tree.Append("└─");
-                    indent += "  ";
+                    tree.Append($"{indent}└─{subFiles[i].Name}\n");
                 }
                 else
                 {
-                    tree.Append("├─");
-                    indent += "│ ";
-                }
-
-                tree.Append($"{dir.Name}\n");
-
-                FileInfo[] subFiles = dir.GetFiles("*", SearchOption.TopDirectoryOnly);
-
-                for (int i = 0; i < subFiles.Length; i++)
-                {
-                    if (i == subFiles.Length - 1)
-                    {
-                        tree.Append($"{indent}└─{subFiles[i].Name}\n");
-                    }
-                    else
-                    {
-                        tree.Append($"{indent}├─{subFiles[i].Name}\n");
-                    }
-                }
-
-                DirectoryInfo[] subDirects = dir.GetDirectories();
-
-                for (int i = 0; i < subDirects.Length; i++)
-                {
-                    GetTree(tree, subDirects[i], indent, i == subDirects.Length - 1);
+                    tree.Append($"{indent}├─{subFiles[i].Name}\n");
                 }
             }
-            catch (Exception)
-            {
 
+            DirectoryInfo[] subDirects = dir.GetDirectories();
+
+            for (int i = 0; i < subDirects.Length; i++)
+            {
+                GetTree(tree, subDirects[i], indent, i == subDirects.Length - 1);
             }
         }
 
